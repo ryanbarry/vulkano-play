@@ -1,0 +1,10 @@
+# dirs
+/target
+/shaderc/
+/vulkan-sdk*
+
+# downloaded dep archives
+/vulkansdk*
+/shaderc*.tgz
+
+.DS_Store
