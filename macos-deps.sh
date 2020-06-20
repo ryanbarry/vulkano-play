@@ -17,4 +17,4 @@ wget -O shaderc-macos-20200616.tgz https://storage.googleapis.com/shaderc/artifa
 mkdir shaderc
 tar xzf shaderc-macos-20200616.tgz -C shaderc/ --strip-components 1
 
-echo "deps have been downloaded, now just use the ./setup-env.fish before you cargo build/run"
+echo "deps have been downloaded, now just do `source setup-env.fish` before you start working"
