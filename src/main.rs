@@ -28,8 +28,6 @@ buf.data[idx] *= 12;
 }
 
 fn main() {
-    println!("Hello, world!");
-
     let instance =
         Instance::new(None, &InstanceExtensions::none(), None).expect("failed to create instance");
 
