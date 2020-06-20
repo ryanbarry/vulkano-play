@@ -171,7 +171,14 @@ fn main() {
 
     let mut builder = AutoCommandBufferBuilder::new(device.clone(), queue.family()).unwrap();
     builder
-        .clear_color_image(image.clone(), ClearValue::Float([0.0, 0.0, 1.0, 1.0]))
+        .clear_color_image(image.clone(), ClearValue::Float([0.0, 0.0, 0.0, 1.0]))
+        .unwrap()
+        .dispatch(
+            [1024 / 8, 1024 / 8, 1],
+            compute_pipeline.clone(),
+            set.clone(),
+            (),
+        )
         .unwrap()
         .copy_image_to_buffer(image.clone(), imgoutbuf.clone())
         .unwrap();
