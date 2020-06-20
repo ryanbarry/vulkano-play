@@ -128,55 +128,6 @@ fn main() {
         .expect("failed to read dest data after execution");
     assert_eq!(&*src_data_after, &*dst_data_after);
 
-    let data_iter = 0..65536;
-    let data_buffer = CpuAccessibleBuffer::from_iter(
-        device.clone(),
-        BufferUsage {
-            storage_buffer: true,
-            ..BufferUsage::none()
-        },
-        false,
-        data_iter,
-    )
-    .expect("failed to create buffer for simd demo");
-
-    let shader = cs::Shader::load(device.clone()).expect("failed to create shader");
-
-    let compute_pipeline = Arc::new(
-        ComputePipeline::new(device.clone(), &shader.main_entry_point(), &())
-            .expect("failed to create compute pipeline"),
-    );
-
-    let layout = compute_pipeline.layout().descriptor_set_layout(0).unwrap();
-    let set = Arc::new(
-        PersistentDescriptorSet::start(layout.clone())
-            .add_buffer(data_buffer.clone())
-            .unwrap()
-            .build()
-            .unwrap(),
-    );
-
-    let mut builder = AutoCommandBufferBuilder::new(device.clone(), queue.family()).unwrap();
-    builder
-        .dispatch([1024, 1, 1], compute_pipeline.clone(), set.clone(), ())
-        .unwrap();
-    let command_buffer = builder.build().unwrap();
-
-    let finished = command_buffer
-        .execute(queue.clone())
-        .expect("failed to execute simd demo");
-    finished
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
-        .unwrap();
-    let content = data_buffer.read().unwrap();
-    for (n, val) in content.iter().enumerate() {
-        assert_eq!(*val, n as u32 * 12);
-    }
-
-    println!("whoa, did a whole bunch of compute, and it worked!");
-
     let image = StorageImage::new(
         device.clone(),
         Dimensions::Dim2d {
@@ -187,6 +138,25 @@ fn main() {
         Some(queue.family()),
     )
     .unwrap();
+
+    // doing compute on image to visualize the mandelbrot set
+    let mandelbrot_shader = cs::Shader::load(device.clone()).expect("failed to create shader");
+
+    let compute_pipeline = Arc::new(
+        ComputePipeline::new(device.clone(), &mandelbrot_shader.main_entry_point(), &())
+            .expect("failed to create compute pipeline"),
+    );
+
+    let layout = compute_pipeline.layout().descriptor_set_layout(0).unwrap();
+    let set = Arc::new(
+        PersistentDescriptorSet::start(layout.clone())
+            .add_image(image.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+    );
+
+    // done with mandelbrot
 
     let imgoutbuf = CpuAccessibleBuffer::from_iter(
         device.clone(),
