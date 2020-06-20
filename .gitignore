@@ -8,3 +8,4 @@
 /shaderc*.tgz
 
 .DS_Store
+/gpu-image.png
