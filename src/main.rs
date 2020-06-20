@@ -57,10 +57,6 @@ fn main() {
 
     let queue = queues.next().unwrap();
 
-    let data = 12;
-    let buffer = CpuAccessibleBuffer::from_data(device.clone(), BufferUsage::all(), false, data)
-        .expect("failed to create buffer");
-
     let src_data = 0..64;
     let src_buf = CpuAccessibleBuffer::from_iter(
         device.clone(),
