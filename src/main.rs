@@ -175,7 +175,10 @@ fn main() {
 
     let imgoutbuf = CpuAccessibleBuffer::from_iter(
         device.clone(),
-        BufferUsage::all(),
+        BufferUsage {
+            storage_buffer: true,
+            ..BufferUsage::transfer_destination()
+        },
         false,
         (0..1024 * 1024 * 4).map(|_| 0u8),
     )
