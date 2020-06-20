@@ -32,10 +32,10 @@ fn main() {
         Instance::new(None, &InstanceExtensions::none(), None).expect("failed to create instance");
 
     let physical = PhysicalDevice::enumerate(&instance)
-        .nth(0)
-        .expect("failed to get 2nd physical device");
+        .find(|&pd| pd.ty() == vulkano::instance::PhysicalDeviceType::DiscreteGpu)
+        .expect("failed to find a discrete gpu");
 
-    println!("physical: {:?}", physical.name());
+    println!("using physical device: {}", physical.name());
 
     let queue_family = physical
         .queue_families()
