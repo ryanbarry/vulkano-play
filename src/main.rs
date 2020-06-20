@@ -10,6 +10,8 @@ use vulkano::instance::{Instance, InstanceExtensions, PhysicalDevice};
 use vulkano::pipeline::ComputePipeline;
 use vulkano::sync::GpuFuture;
 
+use image::{ImageBuffer, Rgba};
+
 mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
@@ -193,4 +195,8 @@ fn main() {
         .unwrap()
         .wait(None)
         .unwrap();
+
+    let imgoutcontents = imgoutbuf.read().unwrap();
+    let imgout = ImageBuffer::<Rgba<u8>, _>::from_raw(1024, 1024, &imgoutcontents[..]).unwrap();
+    imgout.save("gpu-image.png").unwrap();
 }
