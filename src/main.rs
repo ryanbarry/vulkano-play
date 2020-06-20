@@ -156,5 +156,5 @@ fn main() {
         assert_eq!(*val, n as u32 * 12);
     }
 
-    println!("whoa");
+    println!("whoa, did a whole bunch of compute, and it worked!");
 }
