@@ -47,7 +47,7 @@ fn main() {
             physical,
             &Features::none(),
             &DeviceExtensions {
-                khr_storage_buffer_storage_class: true,
+                khr_storage_buffer_storage_class: true, // this is required for the compute shader buffer
                 ..DeviceExtensions::none()
             },
             [(queue_family, 0.5)].iter().cloned(),
