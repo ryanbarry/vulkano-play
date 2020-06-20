@@ -31,26 +31,11 @@ fn main() {
     let instance =
         Instance::new(None, &InstanceExtensions::none(), None).expect("failed to create instance");
 
-    for p in PhysicalDevice::enumerate(&instance) {
-        println!("device: {:?}", p.name());
-        for m in p.memory_types() {
-            println!("  memory type: {:?}", m);
-        }
-    }
-
     let physical = PhysicalDevice::enumerate(&instance)
         .nth(0)
         .expect("failed to get 2nd physical device");
 
     println!("physical: {:?}", physical.name());
-
-    for family in physical.queue_families() {
-        println!(
-            "found a queue family with {:?} queue(s), supports graphics? {:?}",
-            family.queues_count(),
-            family.supports_graphics()
-        );
-    }
 
     let queue_family = physical
         .queue_families()
