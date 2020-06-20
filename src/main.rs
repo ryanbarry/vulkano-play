@@ -4,6 +4,8 @@ use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBuffer};
 use vulkano::descriptor::{descriptor_set::PersistentDescriptorSet, PipelineLayoutAbstract};
 use vulkano::device::{Device, DeviceExtensions, Features};
+use vulkano::format::{ClearValue, Format};
+use vulkano::image::{Dimensions, StorageImage};
 use vulkano::instance::{Instance, InstanceExtensions, PhysicalDevice};
 use vulkano::pipeline::ComputePipeline;
 use vulkano::sync::GpuFuture;
@@ -157,4 +159,38 @@ fn main() {
     }
 
     println!("whoa, did a whole bunch of compute, and it worked!");
+
+    let image = StorageImage::new(
+        device.clone(),
+        Dimensions::Dim2d {
+            width: 1024,
+            height: 1024,
+        },
+        Format::R8G8B8A8Unorm,
+        Some(queue.family()),
+    )
+    .unwrap();
+
+    let imgoutbuf = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        (0..1024 * 1024 * 4).map(|_| 0u8),
+    )
+    .expect("failed to create the image buffer");
+
+    let mut builder = AutoCommandBufferBuilder::new(device.clone(), queue.family()).unwrap();
+    builder
+        .clear_color_image(image.clone(), ClearValue::Float([0.0, 0.0, 1.0, 1.0]))
+        .unwrap()
+        .copy_image_to_buffer(image.clone(), imgoutbuf.clone())
+        .unwrap();
+    let command_buffer = builder.build().unwrap();
+
+    let finished = command_buffer.execute(queue.clone()).unwrap();
+    finished
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
 }
