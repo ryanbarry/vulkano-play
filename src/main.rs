@@ -3,11 +3,10 @@ use std::sync::Arc;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBuffer, DynamicState};
 use vulkano::descriptor::{descriptor_set::PersistentDescriptorSet, PipelineLayoutAbstract};
-use vulkano::device::{Device, DeviceExtensions, Features};
+use vulkano::device::{Device, DeviceExtensions};
 use vulkano::format::{ClearValue, Format};
 use vulkano::framebuffer::{Framebuffer, Subpass};
-use vulkano::image::ImageUsage;
-use vulkano::image::{Dimensions, StorageImage};
+use vulkano::image::{Dimensions, ImageUsage, StorageImage};
 use vulkano::instance::{Instance, PhysicalDevice, RawInstanceExtensions};
 use vulkano::pipeline::{viewport::Viewport, ComputePipeline, GraphicsPipeline};
 use vulkano::swapchain::{ColorSpace, PresentMode, Surface, SurfaceTransform, Swapchain};
@@ -15,6 +14,9 @@ use vulkano::sync::GpuFuture;
 use vulkano::VulkanObject;
 
 use image::{ImageBuffer, Rgba};
+
+mod sendable;
+use sendable::Sendable;
 
 mod cs {
     vulkano_shaders::shader! {
@@ -88,7 +90,7 @@ fn main() {
         .vulkan_create_surface(instance.internal_object())
         .expect("failed to create surface");
     let surface = Arc::new(unsafe {
-        Surface::from_raw_surface(instance.clone(), h_surface, window.context())
+        Surface::from_raw_surface(instance.clone(), h_surface, Sendable::new(window.context()))
     });
 
     let physical = PhysicalDevice::enumerate(&instance)
@@ -129,7 +131,7 @@ fn main() {
 
     let queue = queues.next().unwrap();
 
-    let (swapchain, images) = Swapchain::new(
+    let (swapchain, swapchain_images) = Swapchain::new(
         device.clone(),
         surface.clone(),
         caps_surface.min_image_count,
@@ -147,6 +149,7 @@ fn main() {
     )
     .expect("failed to create swapchain");
 
+    // BEGIN: mandelbrot "offline" render
     let src_data = 0..64;
     let src_buf = CpuAccessibleBuffer::from_iter(
         device.clone(),
@@ -266,6 +269,10 @@ fn main() {
     let imgout = ImageBuffer::<Rgba<u8>, _>::from_raw(1024, 1024, &imgoutcontents[..]).unwrap();
     imgout.save("gpu-image.png").unwrap();
 
+    // END: mandelbrot "offline" render
+
+    // begin the actual real-time rendering
+
     let vertex1 = Vertex {
         position: [-0.5, -0.5],
     };
@@ -325,7 +332,7 @@ void main() {
                                                                     color: {
                                                                         load: Clear,
                                                                         store: Store,
-                                                                        format: Format::R8G8B8A8Unorm,
+                                                                        format: swapchain.format(),
                                                                         samples: 1,
                                                                     }
                                                                 },
@@ -339,6 +346,7 @@ void main() {
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
             .vertex_shader(vs.main_entry_point(), ())
+            //.triangle_list()
             .viewports_dynamic_scissors_irrelevant(1)
             .fragment_shader(fs.main_entry_point(), ())
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
@@ -349,64 +357,27 @@ void main() {
     let dynamic_state = DynamicState {
         viewports: Some(vec![Viewport {
             origin: [0.0, 0.0],
-            dimensions: [1024.0, 1024.0],
+            dimensions: {
+                let dim = swapchain_images[0].dimensions();
+                [dim[0] as f32, dim[1] as f32]
+            },
             depth_range: 0.0..1.0,
         }]),
         ..DynamicState::none()
     };
 
-    let framebuffer = Arc::new(
-        Framebuffer::start(render_pass.clone())
-            .add(image.clone())
-            .unwrap()
-            .build()
-            .unwrap(),
-    );
-
-    let renderoutbuf = CpuAccessibleBuffer::from_iter(
-        device.clone(),
-        BufferUsage {
-            storage_buffer: true,
-            ..BufferUsage::transfer_destination()
-        },
-        false,
-        (0..1024 * 1024 * 4).map(|_| 0u8),
-    )
-    .expect("failed to create the image buffer");
-
-    let mut builder =
-        AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap();
-    builder
-        .begin_render_pass(
-            framebuffer.clone(),
-            false,
-            vec![[0.0, 0.0, 1.0, 1.0].into()],
-        )
-        .unwrap()
-        .draw(
-            pipeline.clone(),
-            &dynamic_state,
-            vertex_buffer.clone(),
-            (),
-            (),
-        )
-        .unwrap()
-        .end_render_pass()
-        .unwrap()
-        .copy_image_to_buffer(image.clone(), renderoutbuf.clone())
-        .unwrap();
-
-    let command_buffer = builder.build().unwrap();
-    let finished = command_buffer.execute(queue.clone()).unwrap();
-    finished
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
-        .unwrap();
-
-    let rendercontents = renderoutbuf.read().unwrap();
-    let rendered = ImageBuffer::<Rgba<u8>, _>::from_raw(1024, 1024, &rendercontents[..]).unwrap();
-    rendered.save("gpu-triangle.png").unwrap();
+    let framebuffers = swapchain_images
+        .iter()
+        .map(|image| {
+            Arc::new(
+                Framebuffer::start(render_pass.clone())
+                    .add(image.clone())
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -418,6 +389,43 @@ void main() {
                 } => break 'running,
                 _ => {}
             }
+
+            let (acqd_swch_img, should_recreate, acquire_future) =
+                vulkano::swapchain::acquire_next_image(
+                    swapchain.clone(),
+                    Some(::std::time::Duration::new(0, 1_000_000_000u32 / 120)),
+                )
+                .unwrap();
+
+            let mut builder =
+                AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
+                    .unwrap();
+            builder
+                .begin_render_pass(
+                    framebuffers[acqd_swch_img].clone(),
+                    false,
+                    vec![[0.0, 0.0, 1.0, 1.0].into()],
+                )
+                .unwrap()
+                .draw(
+                    pipeline.clone(),
+                    &dynamic_state,
+                    vertex_buffer.clone(),
+                    (),
+                    (),
+                )
+                .unwrap()
+                .end_render_pass()
+                .unwrap();
+
+            let command_buffer = builder.build().unwrap();
+
+            acquire_future
+                .then_execute(queue.clone(), command_buffer)
+                .unwrap()
+                .then_swapchain_present(queue.clone(), swapchain.clone(), acqd_swch_img)
+                .then_signal_fence_and_flush()
+                .unwrap();
         }
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
     }
