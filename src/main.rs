@@ -15,9 +15,6 @@ use vulkano::VulkanObject;
 
 use image::{ImageBuffer, Rgba};
 
-mod sendable;
-use sendable::Sendable;
-
 mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
@@ -89,9 +86,13 @@ fn main() {
     let h_surface = window
         .vulkan_create_surface(instance.internal_object())
         .expect("failed to create surface");
-    let surface = Arc::new(unsafe {
-        Surface::from_raw_surface(instance.clone(), h_surface, Sendable::new(window.context()))
-    });
+
+    // NOTE: we are giving the surface an empty tuple as the "window" because while SDL2 does not
+    // support using the window from multiple threads, Vulkano requires the surface to be
+    // Send + Sync through the framebuffer (in turn, through the swapchain). this means, instead of
+    // being able to rely on the explicit relationships to keep objects alive, we have to ensure
+    // that the window is alive for the entire life of the surface ourself.
+    let surface = Arc::new(unsafe { Surface::from_raw_surface(instance.clone(), h_surface, ()) });
 
     let physical = PhysicalDevice::enumerate(&instance)
         .find(|&pd| pd.ty() == vulkano::instance::PhysicalDeviceType::DiscreteGpu)
