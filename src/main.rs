@@ -6,10 +6,11 @@ use vulkano::descriptor::{descriptor_set::PersistentDescriptorSet, PipelineLayou
 use vulkano::device::{Device, DeviceExtensions, Features};
 use vulkano::format::{ClearValue, Format};
 use vulkano::framebuffer::{Framebuffer, Subpass};
+use vulkano::image::ImageUsage;
 use vulkano::image::{Dimensions, StorageImage};
 use vulkano::instance::{Instance, PhysicalDevice, RawInstanceExtensions};
 use vulkano::pipeline::{viewport::Viewport, ComputePipeline, GraphicsPipeline};
-use vulkano::swapchain::Surface;
+use vulkano::swapchain::{ColorSpace, PresentMode, Surface, SurfaceTransform, Swapchain};
 use vulkano::sync::GpuFuture;
 use vulkano::VulkanObject;
 
@@ -86,14 +87,26 @@ fn main() {
     let h_surface = window
         .vulkan_create_surface(instance.internal_object())
         .expect("failed to create surface");
-    let surface =
-        unsafe { Surface::from_raw_surface(instance.clone(), h_surface, window.context()) };
+    let surface = Arc::new(unsafe {
+        Surface::from_raw_surface(instance.clone(), h_surface, window.context())
+    });
 
     let physical = PhysicalDevice::enumerate(&instance)
         .find(|&pd| pd.ty() == vulkano::instance::PhysicalDeviceType::DiscreteGpu)
         .expect("failed to find a discrete gpu");
 
     println!("using physical device: {}", physical.name());
+
+    let caps_surface = surface
+        .capabilities(physical)
+        .expect("failed to get the surface's capabilities");
+    let surface_dims = caps_surface.current_extent.unwrap();
+    let surface_alpha = caps_surface
+        .supported_composite_alpha
+        .iter()
+        .next()
+        .unwrap();
+    let surface_format = caps_surface.supported_formats[0].0;
 
     let queue_family = physical
         .queue_families()
@@ -103,9 +116,10 @@ fn main() {
     let (device, mut queues) = {
         Device::new(
             physical,
-            &Features::none(),
+            physical.supported_features(),
             &DeviceExtensions {
                 khr_storage_buffer_storage_class: true, // this is required for the compute shader buffer
+                khr_swapchain: true,
                 ..DeviceExtensions::none()
             },
             [(queue_family, 0.5)].iter().cloned(),
@@ -114,6 +128,24 @@ fn main() {
     };
 
     let queue = queues.next().unwrap();
+
+    let (swapchain, images) = Swapchain::new(
+        device.clone(),
+        surface.clone(),
+        caps_surface.min_image_count,
+        surface_format,
+        surface_dims,
+        1,
+        ImageUsage::color_attachment(),
+        &queue,
+        SurfaceTransform::Identity,
+        surface_alpha,
+        PresentMode::Fifo,
+        vulkano::swapchain::FullscreenExclusive::AppControlled, // TODO: research this a little
+        true,
+        ColorSpace::SrgbNonLinear,
+    )
+    .expect("failed to create swapchain");
 
     let src_data = 0..64;
     let src_buf = CpuAccessibleBuffer::from_iter(
