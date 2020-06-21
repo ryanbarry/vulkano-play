@@ -10,3 +10,4 @@ edition = "2018"
 vulkano = "0.19"
 vulkano-shaders = "0.18"
 image = { version = "0.23", features = [ "png" ] }
+sdl2 = { version = "0.34", default-features = false }

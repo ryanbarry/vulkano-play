@@ -7,9 +7,11 @@ use vulkano::device::{Device, DeviceExtensions, Features};
 use vulkano::format::{ClearValue, Format};
 use vulkano::framebuffer::{Framebuffer, Subpass};
 use vulkano::image::{Dimensions, StorageImage};
-use vulkano::instance::{Instance, InstanceExtensions, PhysicalDevice};
+use vulkano::instance::{Instance, PhysicalDevice, RawInstanceExtensions};
 use vulkano::pipeline::{viewport::Viewport, ComputePipeline, GraphicsPipeline};
+use vulkano::swapchain::Surface;
 use vulkano::sync::GpuFuture;
+use vulkano::VulkanObject;
 
 use image::{ImageBuffer, Rgba};
 
@@ -54,8 +56,38 @@ struct Vertex {
 vulkano::impl_vertex!(Vertex, position);
 
 fn main() {
-    let instance =
-        Instance::new(None, &InstanceExtensions::none(), None).expect("failed to create instance");
+    let sdl_context = sdl2::init().expect("failed to initialize SDL2");
+    println!(
+        "using SDL2 version {}, rev {}",
+        sdl2::version::version(),
+        sdl2::version::revision()
+    );
+    let mut event_pump = sdl_context
+        .event_pump()
+        .expect("failed to get SDL event pump");
+    let video_subsystem = sdl_context
+        .video()
+        .expect("failed to get SDL video subsystem");
+    let window = video_subsystem
+        .window("Vulkano Play", 800, 600)
+        .vulkan()
+        .build()
+        .expect("failed to create window");
+
+    let instance_extensions = window.vulkan_instance_extensions().unwrap();
+    let vk_inst_exts = RawInstanceExtensions::new(
+        instance_extensions
+            .iter()
+            .map(|&v| std::ffi::CString::new(v).unwrap()),
+    );
+
+    let instance = Instance::new(None, vk_inst_exts, None).expect("failed to create instance");
+
+    let h_surface = window
+        .vulkan_create_surface(instance.internal_object())
+        .expect("failed to create surface");
+    let surface =
+        unsafe { Surface::from_raw_surface(instance.clone(), h_surface, window.context()) };
 
     let physical = PhysicalDevice::enumerate(&instance)
         .find(|&pd| pd.ty() == vulkano::instance::PhysicalDeviceType::DiscreteGpu)
@@ -343,4 +375,18 @@ void main() {
     let rendercontents = renderoutbuf.read().unwrap();
     let rendered = ImageBuffer::<Rgba<u8>, _>::from_raw(1024, 1024, &rendercontents[..]).unwrap();
     rendered.save("gpu-triangle.png").unwrap();
+
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                sdl2::event::Event::Quit { .. }
+                | sdl2::event::Event::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    ..
+                } => break 'running,
+                _ => {}
+            }
+        }
+        ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
+    }
 }
