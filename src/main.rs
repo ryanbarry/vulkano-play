@@ -390,44 +390,43 @@ void main() {
                 } => break 'running,
                 _ => {}
             }
-
-            let (acqd_swch_img, should_recreate, acquire_future) =
-                vulkano::swapchain::acquire_next_image(
-                    swapchain.clone(),
-                    Some(::std::time::Duration::new(0, 1_000_000_000u32 / 120)),
-                )
-                .unwrap();
-
-            let mut builder =
-                AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-                    .unwrap();
-            builder
-                .begin_render_pass(
-                    framebuffers[acqd_swch_img].clone(),
-                    false,
-                    vec![[0.0, 0.0, 1.0, 1.0].into()],
-                )
-                .unwrap()
-                .draw(
-                    pipeline.clone(),
-                    &dynamic_state,
-                    vertex_buffer.clone(),
-                    (),
-                    (),
-                )
-                .unwrap()
-                .end_render_pass()
-                .unwrap();
-
-            let command_buffer = builder.build().unwrap();
-
-            acquire_future
-                .then_execute(queue.clone(), command_buffer)
-                .unwrap()
-                .then_swapchain_present(queue.clone(), swapchain.clone(), acqd_swch_img)
-                .then_signal_fence_and_flush()
-                .unwrap();
         }
+        let (acqd_swch_img, should_recreate, acquire_future) =
+            vulkano::swapchain::acquire_next_image(
+                swapchain.clone(),
+                Some(::std::time::Duration::new(0, 1_000_000_000u32 / 120)),
+            )
+            .unwrap();
+
+        let mut builder =
+            AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
+                .unwrap();
+        builder
+            .begin_render_pass(
+                framebuffers[acqd_swch_img].clone(),
+                false,
+                vec![[0.0, 0.0, 1.0, 1.0].into()],
+            )
+            .unwrap()
+            .draw(
+                pipeline.clone(),
+                &dynamic_state,
+                vertex_buffer.clone(),
+                (),
+                (),
+            )
+            .unwrap()
+            .end_render_pass()
+            .unwrap();
+
+        let command_buffer = builder.build().unwrap();
+
+        acquire_future
+            .then_execute(queue.clone(), command_buffer)
+            .unwrap()
+            .then_swapchain_present(queue.clone(), swapchain.clone(), acqd_swch_img)
+            .then_signal_fence_and_flush()
+            .unwrap();
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
     }
 }
