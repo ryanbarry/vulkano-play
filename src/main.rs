@@ -302,9 +302,13 @@ fn main() {
 #version 450
 
 layout(location = 0) in vec2 position;
+layout(push_constant) uniform PushConstants {
+  mat2 rot;
+} push_constants;
 
 void main() {
-  gl_Position = vec4(position, 0.0, 1.0);
+  vec2 rotated = position * push_constants.rot;
+  gl_Position = vec4(rotated, 0.0, 1.0);
 }
 "
         }
@@ -380,7 +384,12 @@ void main() {
         })
         .collect::<Vec<_>>();
 
+    let mut theta = 0f32;
     'running: loop {
+        theta = theta + 2.0 * std::f32::consts::PI / 720.0;
+        let rot = [[theta.cos(), theta.sin()], [-theta.sin(), theta.cos()]];
+        let push_constants = vs::ty::PushConstants { rot: rot };
+
         for event in event_pump.poll_iter() {
             match event {
                 sdl2::event::Event::Quit { .. }
@@ -388,6 +397,12 @@ void main() {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
                 } => break 'running,
+                sdl2::event::Event::KeyUp {
+                    keycode: Some(sdl2::keyboard::Keycode::Space),
+                    ..
+                } => {
+                    println!("rot is {:?}", rot);
+                }
                 _ => {}
             }
         }
@@ -413,7 +428,7 @@ void main() {
                 &dynamic_state,
                 vertex_buffer.clone(),
                 (),
-                (),
+                push_constants,
             )
             .unwrap()
             .end_render_pass()
@@ -427,6 +442,7 @@ void main() {
             .then_swapchain_present(queue.clone(), swapchain.clone(), acqd_swch_img)
             .then_signal_fence_and_flush()
             .unwrap();
+
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
     }
 }
