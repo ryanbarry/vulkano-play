@@ -388,17 +388,12 @@ void main() {
 
     let mut theta = 0f32;
     let mut xpos = -1f32;
-    let mut xmot = 0.001;
     'running: loop {
         theta = theta + 2.0 * std::f32::consts::PI / 1440.0;
         let rot = [[theta.cos(), theta.sin()], [-theta.sin(), theta.cos()]];
-        xpos = xpos + xmot;
-        if xpos > 1f32 || xpos < -1f32 {
-            xmot = -xmot;
-        }
         let push_constants = vs::ty::PushConstants {
             rot: rot,
-            translation: [xpos, 0f32],
+            translation: [0.5 * theta.cos(), 0.5 * theta.sin()],
         };
 
         for event in event_pump.poll_iter() {
