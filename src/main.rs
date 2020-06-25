@@ -304,11 +304,13 @@ fn main() {
 layout(location = 0) in vec2 position;
 layout(push_constant) uniform PushConstants {
   mat2 rot;
+  vec2 translation;
 } push_constants;
 
 void main() {
   vec2 rotated = position * push_constants.rot;
-  gl_Position = vec4(rotated, 0.0, 1.0);
+  vec2 positioned = rotated + push_constants.translation;
+  gl_Position = vec4(positioned, 0.0, 1.0);
 }
 "
         }
@@ -385,10 +387,19 @@ void main() {
         .collect::<Vec<_>>();
 
     let mut theta = 0f32;
+    let mut xpos = -1f32;
+    let mut xmot = 0.001;
     'running: loop {
-        theta = theta + 2.0 * std::f32::consts::PI / 720.0;
+        theta = theta + 2.0 * std::f32::consts::PI / 1440.0;
         let rot = [[theta.cos(), theta.sin()], [-theta.sin(), theta.cos()]];
-        let push_constants = vs::ty::PushConstants { rot: rot };
+        xpos = xpos + xmot;
+        if xpos > 1f32 || xpos < -1f32 {
+            xmot = -xmot;
+        }
+        let push_constants = vs::ty::PushConstants {
+            rot: rot,
+            translation: [xpos, 0f32],
+        };
 
         for event in event_pump.poll_iter() {
             match event {
