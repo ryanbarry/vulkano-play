@@ -386,6 +386,8 @@ void main() {
         })
         .collect::<Vec<_>>();
 
+    let mut prev_presentations = vulkano::sync::now(device.clone()).boxed();
+    let mut presentations_since_cleanup = 0;
     let mut theta = 0f32;
     let mut xpos = -1f32;
     'running: loop {
@@ -412,10 +414,18 @@ void main() {
                 _ => {}
             }
         }
-        let (acqd_swch_img, should_recreate, acquire_future) =
+
+        // before acquiring the next image in the swapchain, clean up any past futures
+        if presentations_since_cleanup > 5 {
+            prev_presentations.cleanup_finished();
+            presentations_since_cleanup = 0;
+        }
+
+        let (acqd_swch_img, _should_recreate, acquire_future) =
             vulkano::swapchain::acquire_next_image(
                 swapchain.clone(),
-                Some(::std::time::Duration::new(0, 1_000_000_000u32 / 120)),
+                //Some(::std::time::Duration::new(0, 1_000_000_000u32 / 120)),
+                None, // no timeout
             )
             .unwrap();
 
@@ -442,12 +452,29 @@ void main() {
 
         let command_buffer = builder.build().unwrap();
 
-        acquire_future
+        let pres_fut = acquire_future
             .then_execute(queue.clone(), command_buffer)
             .unwrap()
+            .join(prev_presentations)
             .then_swapchain_present(queue.clone(), swapchain.clone(), acqd_swch_img)
-            .then_signal_fence_and_flush()
-            .unwrap();
+            .then_signal_fence_and_flush();
+
+        match pres_fut {
+            Ok(future) => {
+                presentations_since_cleanup += 1;
+                prev_presentations = future.boxed();
+            }
+            Err(vulkano::sync::FlushError::OutOfDate) => {
+                //recreate_swapchain = true;
+                prev_presentations = vulkano::sync::now(device.clone()).boxed();
+                presentations_since_cleanup = 0; // drop()ed the prev. value of prev_presentations
+            }
+            Err(e) => {
+                println!("Failed to flush future: {:?}", e);
+                prev_presentations = vulkano::sync::now(device.clone()).boxed();
+                presentations_since_cleanup = 0; // drop()ed the prev. value of prev_presentations
+            }
+        }
 
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
     }
