@@ -389,7 +389,6 @@ void main() {
     let mut prev_presentations = vulkano::sync::now(device.clone()).boxed();
     let mut presentations_since_cleanup = 0;
     let mut theta = 0f32;
-    let mut xpos = -1f32;
     'running: loop {
         theta = theta + 2.0 * std::f32::consts::PI / 1440.0;
         let rot = [[theta.cos(), theta.sin()], [-theta.sin(), theta.cos()]];
@@ -475,7 +474,5 @@ void main() {
                 presentations_since_cleanup = 0; // drop()ed the prev. value of prev_presentations
             }
         }
-
-        ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
     }
 }
