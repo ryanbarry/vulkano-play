@@ -103,7 +103,13 @@ fn main() {
     let caps_surface = surface
         .capabilities(physical)
         .expect("failed to get the surface's capabilities");
-    let surface_dims = caps_surface.current_extent.unwrap();
+    let surface_dims = match caps_surface.current_extent {
+        Some(dims_arr) => dims_arr,
+        None => {
+            let dims_tup = window.vulkan_drawable_size();
+            [dims_tup.0, dims_tup.1]
+        }
+    };
     let surface_alpha = caps_surface
         .supported_composite_alpha
         .iter()
