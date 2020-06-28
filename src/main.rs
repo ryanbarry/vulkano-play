@@ -61,7 +61,7 @@ fn main() {
         .find(|&pd| pd.ty() == vulkano::instance::PhysicalDeviceType::DiscreteGpu)
         .expect("failed to find a discrete gpu");
 
-    println!("using physical device: {}", physical.name());
+    println!("selected physical device: {}", physical.name());
 
     let caps_surface = surface
         .capabilities(physical)
@@ -261,7 +261,7 @@ void main() {
         let rot = [[theta.cos(), theta.sin()], [-theta.sin(), theta.cos()]];
         let push_constants = vs::ty::PushConstants {
             rot: rot,
-            translation: [0.5 * theta.cos(), 0.5 * theta.sin()],
+            translation: [0.8 * theta.cos(), 0.8 * theta.sin()],
         };
 
         for event in event_pump.poll_iter() {
