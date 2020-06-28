@@ -175,7 +175,7 @@ layout(location = 0) out vec4 v_color;
 void main() {
   vec2 rotated = position * push_constants.rot;
   vec2 positioned = rotated + push_constants.translation;
-  gl_Position = vec4(positioned, 0.0, 1.0);
+  gl_Position = vec4(positioned.x*600.0/800.0, positioned.y, 0.0, 1.0);
   v_color = color;
 }
 "
