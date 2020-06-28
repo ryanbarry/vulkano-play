@@ -1,0 +1,8 @@
+- install rust through the rustup installer from rust-lang.org
+- install the lunarg vulkan sdk for windows
+- download the libsdl2 development zip
+  - copy all the .lib files from its SDL2-2.x.xx\lib\x64\ dir to C:\Users\<you>\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib\
+  - copy the .dll from the same dir in the zip to the same dir in which this txt file lives
+- download a shaderc release from https://github.com/google/shaderc/blob/main/downloads.md and unzip to this dir, changing the "install" folder name to "shaderc"
+- in a cmd shell cd to this directory and then, before building, run `set SHADERC_LIB_DIR=%cd%\shaderc\lib`
+- you're done! now you should be able to just do `cargo run` etc. :)
