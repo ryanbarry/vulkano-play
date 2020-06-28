@@ -14,8 +14,9 @@ use vulkano::VulkanObject;
 #[derive(Default, Copy, Clone)]
 struct Vertex {
     position: [f32; 2],
+    color: [f32; 4],
 }
-vulkano::impl_vertex!(Vertex, position);
+vulkano::impl_vertex!(Vertex, position, color);
 
 fn main() {
     let sdl_context = sdl2::init().expect("failed to initialize SDL2");
@@ -118,15 +119,32 @@ fn main() {
     )
     .expect("failed to create swapchain");
 
-    let vertex1 = Vertex {
-        position: [-0.5, -0.5],
-    };
-    let vertex2 = Vertex {
-        position: [0.0, 0.5],
-    };
-    let vertex3 = Vertex {
-        position: [0.5, -0.25],
-    };
+    let vertices: Vec<Vertex> = vec![
+        Vertex {
+            position: [-0.25, -0.25],
+            color: [1.0, 0.3, 0.0, 1.0],
+        },
+        Vertex {
+            position: [-0.25, 0.25],
+            color: [1.0, 0.3, 0.0, 1.0],
+        },
+        Vertex {
+            position: [0.25, 0.25],
+            color: [1.0, 0.0, 0.4, 1.0],
+        },
+        Vertex {
+            position: [-0.25, -0.25],
+            color: [1.0, 0.3, 0.0, 1.0],
+        },
+        Vertex {
+            position: [0.25, 0.25],
+            color: [1.0, 0.0, 0.4, 1.0],
+        },
+        Vertex {
+            position: [0.25, -0.25],
+            color: [1.0, 0.0, 0.4, 1.0],
+        },
+    ];
 
     let vertex_buffer = CpuAccessibleBuffer::from_iter(
         device.clone(),
@@ -135,7 +153,7 @@ fn main() {
             ..BufferUsage::none()
         },
         false,
-        vec![vertex1, vertex2, vertex3].into_iter(),
+        vertices.into_iter(),
     )
     .unwrap();
 
@@ -146,15 +164,19 @@ fn main() {
 #version 450
 
 layout(location = 0) in vec2 position;
+layout(location = 1) in vec4 color;
 layout(push_constant) uniform PushConstants {
   mat2 rot;
   vec2 translation;
 } push_constants;
 
+layout(location = 0) out vec4 v_color;
+
 void main() {
   vec2 rotated = position * push_constants.rot;
   vec2 positioned = rotated + push_constants.translation;
   gl_Position = vec4(positioned, 0.0, 1.0);
+  v_color = color;
 }
 "
         }
@@ -166,10 +188,11 @@ void main() {
             src: "
 #version 450
 
+layout(location = 0) in vec4 v_color;
 layout(location = 0) out vec4 f_color;
 
 void main() {
-  f_color = vec4(1.0, 0.0, 0.0, 1.0);
+  f_color = v_color;
 }
 "
         }
