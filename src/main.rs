@@ -198,8 +198,26 @@ void main() {
         }
     }
 
+    mod dbg_fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            src: "
+#version 450
+
+layout(location = 0) in vec4 v_color;
+layout(location = 0) out vec4 f_color;
+
+void main() {
+  f_color = vec4(1.0-v_color.r, 1.0-v_color.g, 1.0-v_color.b, 1.0);
+}
+"
+        }
+    }
+
     let vs = vs::Shader::load(device.clone()).expect("failed to create vertex shader");
     let fs = fs::Shader::load(device.clone()).expect("failed to create fragment shader");
+    let dbg_fs =
+        dbg_fs::Shader::load(device.clone()).expect("failed to create dbg fragment shader");
 
     let render_pass = Arc::new(vulkano::single_pass_renderpass!(device.clone(),
                                                                 attachments: {
@@ -220,9 +238,21 @@ void main() {
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
             .vertex_shader(vs.main_entry_point(), ())
-            //.triangle_list()
+            .triangle_list()
             .viewports_dynamic_scissors_irrelevant(1)
             .fragment_shader(fs.main_entry_point(), ())
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .build(device.clone())
+            .unwrap(),
+    );
+
+    let dbg_pipeline = Arc::new(
+        GraphicsPipeline::start()
+            .vertex_input_single_buffer::<Vertex>()
+            .vertex_shader(vs.main_entry_point(), ())
+            .polygon_mode_line()
+            .viewports_dynamic_scissors_irrelevant(1)
+            .fragment_shader(dbg_fs.main_entry_point(), ())
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())
             .unwrap(),
@@ -256,6 +286,7 @@ void main() {
     let mut prev_presentations = vulkano::sync::now(device.clone()).boxed();
     let mut presentations_since_cleanup = 0;
     let mut theta = 0f32;
+    let mut debug_on = false;
     'running: loop {
         theta = theta + 2.0 * std::f32::consts::PI / 1440.0;
         let rot = [[theta.cos(), theta.sin()], [-theta.sin(), theta.cos()]];
@@ -276,6 +307,12 @@ void main() {
                     ..
                 } => {
                     println!("rot is {:?}", rot);
+                }
+                sdl2::event::Event::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::D),
+                    ..
+                } => {
+                    debug_on = !debug_on;
                 }
                 _ => {}
             }
@@ -312,9 +349,21 @@ void main() {
                 (),
                 push_constants,
             )
-            .unwrap()
-            .end_render_pass()
             .unwrap();
+
+        if debug_on {
+            builder
+                .draw(
+                    dbg_pipeline.clone(),
+                    &dynamic_state,
+                    vertex_buffer.clone(),
+                    (),
+                    push_constants,
+                )
+                .unwrap();
+        }
+
+        builder.end_render_pass().unwrap();
 
         let command_buffer = builder.build().unwrap();
 
