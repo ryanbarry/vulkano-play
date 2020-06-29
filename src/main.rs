@@ -190,13 +190,15 @@ layout(location = 2) in vec2 uv;
 layout(push_constant) uniform PushConstants {
   mat2 rot;
   vec2 translation;
+  float scale;
 } push_constants;
 
 layout(location = 0) out vec4 v_color;
 layout(location = 1) out vec2 v_uv;
 
 void main() {
-  vec2 rotated = position * push_constants.rot;
+  vec2 scaled = position * push_constants.scale;
+  vec2 rotated = scaled * push_constants.rot;
   vec2 positioned = rotated + push_constants.translation;
   gl_Position = vec4(positioned.x*600.0/800.0, positioned.y, 0.0, 1.0);
   v_color = color;
@@ -348,14 +350,32 @@ void main() {
 
     let mut prev_presentations = tex_fut.boxed();
     let mut presentations_since_cleanup = 0;
-    let mut theta = 0f32;
     let mut debug_on = false;
+    let mut pos = [0f32; 2];
+    let mut v_x = 0.005f32;
+    let mut v_y = 0.0071f32;
     'running: loop {
-        theta = theta + 2.0 * std::f32::consts::PI / 1440.0;
-        let rot = [[theta.cos(), theta.sin()], [-theta.sin(), theta.cos()]];
+        pos[0] += v_x;
+        if pos[0] > 1.0 {
+            v_x = -v_x;
+            pos[0] = 1.0;
+        } else if pos[0] < -1.0 {
+            v_x = -v_x;
+            pos[0] = -1.0;
+        }
+        pos[1] += v_y;
+        if pos[1] > 1.0 {
+            v_y = -v_y;
+            pos[1] = 1.0;
+        } else if pos[1] < -1.0 {
+            v_y = -v_y;
+            pos[1] = -1.0;
+        }
+
         let push_constants = vs::ty::PushConstants {
-            rot: rot,
-            translation: [0.8 * theta.cos(), 0.8 * theta.sin()],
+            rot: [[1.0, 0.0], [0.0, 1.0]],
+            translation: pos,
+            scale: 0.2,
         };
 
         for event in event_pump.poll_iter() {
@@ -365,12 +385,6 @@ void main() {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
                 } => break 'running,
-                sdl2::event::Event::KeyUp {
-                    keycode: Some(sdl2::keyboard::Keycode::Space),
-                    ..
-                } => {
-                    println!("rot is {:?}", rot);
-                }
                 sdl2::event::Event::KeyDown {
                     keycode: Some(sdl2::keyboard::Keycode::D),
                     ..
