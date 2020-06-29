@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions};
 use vulkano::framebuffer::{Framebuffer, Subpass};
 use vulkano::image::ImageUsage;
 use vulkano::instance::{Instance, PhysicalDevice, RawInstanceExtensions};
 use vulkano::pipeline::{viewport::Viewport, GraphicsPipeline};
+use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
 use vulkano::swapchain::{ColorSpace, PresentMode, Surface, SurfaceTransform, Swapchain};
 use vulkano::sync::GpuFuture;
 use vulkano::VulkanObject;
@@ -15,10 +17,23 @@ use vulkano::VulkanObject;
 struct Vertex {
     position: [f32; 2],
     color: [f32; 4],
+    uv: [f32; 2],
 }
-vulkano::impl_vertex!(Vertex, position, color);
+vulkano::impl_vertex!(Vertex, position, color, uv);
 
 fn main() {
+    let img = image::load_from_memory_with_format(
+        include_bytes!("../imgs/ballGrey_09.png"),
+        image::ImageFormat::Png,
+    )
+    .expect("failed to load image")
+    .to_rgba();
+    let img_dims = vulkano::image::Dimensions::Dim2d {
+        width: img.dimensions().0,
+        height: img.dimensions().1,
+    };
+    let img_data = img.into_raw().clone();
+
     let sdl_context = sdl2::init().expect("failed to initialize SDL2");
     println!(
         "using SDL2 version {}, rev {}",
@@ -123,26 +138,32 @@ fn main() {
         Vertex {
             position: [-0.25, -0.25],
             color: [1.0, 0.3, 0.0, 1.0],
+            uv: [-1.0, -1.0],
         },
         Vertex {
             position: [-0.25, 0.25],
             color: [1.0, 0.3, 0.0, 1.0],
+            uv: [-1.0, 1.0],
         },
         Vertex {
             position: [0.25, 0.25],
             color: [1.0, 0.0, 0.4, 1.0],
+            uv: [1.0, 1.0],
         },
         Vertex {
             position: [-0.25, -0.25],
             color: [1.0, 0.3, 0.0, 1.0],
+            uv: [-1.0, -1.0],
         },
         Vertex {
             position: [0.25, 0.25],
             color: [1.0, 0.0, 0.4, 1.0],
+            uv: [1.0, 1.0],
         },
         Vertex {
             position: [0.25, -0.25],
             color: [1.0, 0.0, 0.4, 1.0],
+            uv: [1.0, -1.0],
         },
     ];
 
@@ -165,18 +186,21 @@ fn main() {
 
 layout(location = 0) in vec2 position;
 layout(location = 1) in vec4 color;
+layout(location = 2) in vec2 uv;
 layout(push_constant) uniform PushConstants {
   mat2 rot;
   vec2 translation;
 } push_constants;
 
 layout(location = 0) out vec4 v_color;
+layout(location = 1) out vec2 v_uv;
 
 void main() {
   vec2 rotated = position * push_constants.rot;
   vec2 positioned = rotated + push_constants.translation;
   gl_Position = vec4(positioned.x*600.0/800.0, positioned.y, 0.0, 1.0);
   v_color = color;
+  v_uv = uv;
 }
 "
         }
@@ -189,10 +213,14 @@ void main() {
 #version 450
 
 layout(location = 0) in vec4 v_color;
+layout(location = 1) in vec2 v_uv;
+
 layout(location = 0) out vec4 f_color;
 
+layout(set = 0, binding = 0) uniform sampler2D tex;
+
 void main() {
-  f_color = v_color;
+  f_color = texture(tex, v_uv);
 }
 "
         }
@@ -205,6 +233,8 @@ void main() {
 #version 450
 
 layout(location = 0) in vec4 v_color;
+layout(location = 1) in vec2 v_uv;
+
 layout(location = 0) out vec4 f_color;
 
 void main() {
@@ -234,6 +264,29 @@ void main() {
                                                                 }
     ).unwrap());
 
+    let (texture, tex_fut) = vulkano::image::ImmutableImage::from_iter(
+        img_data.into_iter(),
+        img_dims,
+        vulkano::format::Format::R8G8B8A8Srgb,
+        queue.clone(),
+    )
+    .expect("failed to create immutable image future");
+
+    let sampler = Sampler::new(
+        device.clone(),
+        Filter::Linear,
+        Filter::Linear,
+        MipmapMode::Nearest,
+        SamplerAddressMode::Repeat,
+        SamplerAddressMode::Repeat,
+        SamplerAddressMode::Repeat,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+    )
+    .expect("failed to create sampler");
+
     let pipeline = Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
@@ -241,8 +294,18 @@ void main() {
             .triangle_list()
             .viewports_dynamic_scissors_irrelevant(1)
             .fragment_shader(fs.main_entry_point(), ())
+            .blend_alpha_blending()
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())
+            .unwrap(),
+    );
+
+    let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
+    let descr_set = Arc::new(
+        PersistentDescriptorSet::start(layout.clone())
+            .add_sampled_image(texture.clone(), sampler.clone())
+            .unwrap()
+            .build()
             .unwrap(),
     );
 
@@ -283,7 +346,7 @@ void main() {
         })
         .collect::<Vec<_>>();
 
-    let mut prev_presentations = vulkano::sync::now(device.clone()).boxed();
+    let mut prev_presentations = tex_fut.boxed();
     let mut presentations_since_cleanup = 0;
     let mut theta = 0f32;
     let mut debug_on = false;
@@ -346,7 +409,7 @@ void main() {
                 pipeline.clone(),
                 &dynamic_state,
                 vertex_buffer.clone(),
-                (),
+                descr_set.clone(),
                 push_constants,
             )
             .unwrap();
@@ -368,9 +431,9 @@ void main() {
         let command_buffer = builder.build().unwrap();
 
         let pres_fut = acquire_future
+            .join(prev_presentations)
             .then_execute(queue.clone(), command_buffer)
             .unwrap()
-            .join(prev_presentations)
             .then_swapchain_present(queue.clone(), swapchain.clone(), acqd_swch_img)
             .then_signal_fence_and_flush();
 
