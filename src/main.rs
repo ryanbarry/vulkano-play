@@ -356,20 +356,24 @@ void main() {
     let mut v_y = 0.0071f32;
     'running: loop {
         pos[0] += v_x;
-        if pos[0] > 1.0 {
+        const MAX_X: f32 = 800.0 / 600.0 - ((0.2 * 0.5) / 2.0);
+        const MIN_X: f32 = -800.0 / 600.0 + ((0.2 * 0.5) / 2.0);
+        if pos[0] > MAX_X {
             v_x = -v_x;
-            pos[0] = 1.0;
-        } else if pos[0] < -1.0 {
+            pos[0] = MAX_X;
+        } else if pos[0] < MIN_X {
             v_x = -v_x;
-            pos[0] = -1.0;
+            pos[0] = MIN_X;
         }
         pos[1] += v_y;
-        if pos[1] > 1.0 {
+        const MIN_Y: f32 = 1.0 - ((0.2 * 0.5) / 2.0);
+        const MAX_Y: f32 = -1.0 + ((0.2 * 0.5) / 2.0);
+        if pos[1] > MIN_Y {
             v_y = -v_y;
-            pos[1] = 1.0;
-        } else if pos[1] < -1.0 {
+            pos[1] = MIN_Y;
+        } else if pos[1] < MAX_Y {
             v_y = -v_y;
-            pos[1] = -1.0;
+            pos[1] = MAX_Y;
         }
 
         let push_constants = vs::ty::PushConstants {
