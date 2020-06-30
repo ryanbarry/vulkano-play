@@ -22,17 +22,17 @@ struct Vertex {
 vulkano::impl_vertex!(Vertex, position, color, uv);
 
 fn main() {
-    let img = image::load_from_memory_with_format(
+    let ball_img = image::load_from_memory_with_format(
         include_bytes!("../imgs/ballGrey_09.png"),
         image::ImageFormat::Png,
     )
     .expect("failed to load image")
     .to_rgba();
-    let img_dims = vulkano::image::Dimensions::Dim2d {
-        width: img.dimensions().0,
-        height: img.dimensions().1,
+    let ball_img_dims = vulkano::image::Dimensions::Dim2d {
+        width: ball_img.dimensions().0,
+        height: ball_img.dimensions().1,
     };
-    let img_data = img.into_raw().clone();
+    let ball_img_data = ball_img.into_raw().clone();
 
     let sdl_context = sdl2::init().expect("failed to initialize SDL2");
     println!(
@@ -134,7 +134,7 @@ fn main() {
     )
     .expect("failed to create swapchain");
 
-    let vertices: Vec<Vertex> = vec![
+    let ball_verts: Vec<Vertex> = vec![
         Vertex {
             position: [-0.25, -0.25],
             color: [1.0, 0.3, 0.0, 1.0],
@@ -166,15 +166,14 @@ fn main() {
             uv: [1.0, 0.0],
         },
     ];
-
-    let vertex_buffer = CpuAccessibleBuffer::from_iter(
+    let ball_vbuff = CpuAccessibleBuffer::from_iter(
         device.clone(),
         BufferUsage {
             vertex_buffer: true,
             ..BufferUsage::none()
         },
         false,
-        vertices.into_iter(),
+        ball_verts.into_iter(),
     )
     .unwrap();
 
@@ -266,9 +265,9 @@ void main() {
                                                                 }
     ).unwrap());
 
-    let (texture, tex_fut) = vulkano::image::ImmutableImage::from_iter(
-        img_data.into_iter(),
-        img_dims,
+    let (ball_tex, ball_tex_fut) = vulkano::image::ImmutableImage::from_iter(
+        ball_img_data.into_iter(),
+        ball_img_dims,
         vulkano::format::Format::R8G8B8A8Srgb,
         queue.clone(),
     )
@@ -303,9 +302,9 @@ void main() {
     );
 
     let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
-    let descr_set = Arc::new(
+    let ball_ds = Arc::new(
         PersistentDescriptorSet::start(layout.clone())
-            .add_sampled_image(texture.clone(), sampler.clone())
+            .add_sampled_image(ball_tex.clone(), sampler.clone())
             .unwrap()
             .build()
             .unwrap(),
@@ -348,7 +347,7 @@ void main() {
         })
         .collect::<Vec<_>>();
 
-    let mut prev_presentations = tex_fut.boxed();
+    let mut prev_presentations = ball_tex_fut.boxed();
     let mut presentations_since_cleanup = 0;
     let mut debug_on = false;
     let mut pos = [0f32; 2];
@@ -376,7 +375,7 @@ void main() {
             pos[1] = MAX_Y;
         }
 
-        let push_constants = vs::ty::PushConstants {
+        let ball_pcs = vs::ty::PushConstants {
             rot: [[1.0, 0.0], [0.0, 1.0]],
             translation: pos,
             scale: 0.2,
@@ -426,9 +425,9 @@ void main() {
             .draw(
                 pipeline.clone(),
                 &dynamic_state,
-                vertex_buffer.clone(),
-                descr_set.clone(),
-                push_constants,
+                ball_vbuff.clone(),
+                ball_ds.clone(),
+                ball_pcs,
             )
             .unwrap();
 
@@ -437,9 +436,9 @@ void main() {
                 .draw(
                     dbg_pipeline.clone(),
                     &dynamic_state,
-                    vertex_buffer.clone(),
+                    ball_vbuff.clone(),
                     (),
-                    push_constants,
+                    ball_pcs,
                 )
                 .unwrap();
         }
