@@ -64,6 +64,10 @@ fn main() {
         .build()
         .expect("failed to create window");
 
+    sdl_context.mouse().capture(true);
+    sdl_context.mouse().set_relative_mouse_mode(true);
+    sdl_context.mouse().show_cursor(false);
+
     let instance_extensions = window.vulkan_instance_extensions().unwrap();
     let vk_inst_exts = RawInstanceExtensions::new(
         instance_extensions
@@ -422,42 +426,11 @@ void main() {
     let mut prev_presentations = tex_fut.boxed();
     let mut presentations_since_cleanup = 0;
     let mut debug_on = false;
-    let mut pos = [0f32; 2];
+    let mut paddle_x = 0f32;
+    let mut ball_pos = [0f32; 2];
     let mut v_x = 0.005f32;
     let mut v_y = 0.0071f32;
     'running: loop {
-        pos[0] += v_x;
-        const MAX_X: f32 = 800.0 / 600.0 - ((0.2 * 0.5) / 2.0);
-        const MIN_X: f32 = -800.0 / 600.0 + ((0.2 * 0.5) / 2.0);
-        if pos[0] > MAX_X {
-            v_x = -v_x;
-            pos[0] = MAX_X;
-        } else if pos[0] < MIN_X {
-            v_x = -v_x;
-            pos[0] = MIN_X;
-        }
-        pos[1] += v_y;
-        const MIN_Y: f32 = 1.0 - ((0.2 * 0.5) / 2.0);
-        const MAX_Y: f32 = -1.0 + ((0.2 * 0.5) / 2.0);
-        if pos[1] > MIN_Y {
-            v_y = -v_y;
-            pos[1] = MIN_Y;
-        } else if pos[1] < MAX_Y {
-            v_y = -v_y;
-            pos[1] = MAX_Y;
-        }
-
-        let ball_pcs = vs::ty::PushConstants {
-            rot: [[1.0, 0.0], [0.0, 1.0]],
-            translation: pos,
-            scale: 0.2,
-        };
-        let paddle_pcs = vs::ty::PushConstants {
-            rot: [[1.0, 0.0], [0.0, 1.0]],
-            translation: [0.0, 0.8],
-            scale: 0.2,
-        };
-
         for event in event_pump.poll_iter() {
             match event {
                 sdl2::event::Event::Quit { .. }
@@ -471,9 +444,46 @@ void main() {
                 } => {
                     debug_on = !debug_on;
                 }
+                sdl2::event::Event::MouseMotion {
+                    xrel: mousex_rel, ..
+                } => {
+                    paddle_x += (mousex_rel as f32) / 800.0;
+                }
                 _ => {}
             }
         }
+
+        ball_pos[0] += v_x;
+        const MAX_X: f32 = 800.0 / 600.0 - ((0.2 * 0.5) / 2.0);
+        const MIN_X: f32 = -800.0 / 600.0 + ((0.2 * 0.5) / 2.0);
+        if ball_pos[0] > MAX_X {
+            v_x = -v_x;
+            ball_pos[0] = MAX_X;
+        } else if ball_pos[0] < MIN_X {
+            v_x = -v_x;
+            ball_pos[0] = MIN_X;
+        }
+        ball_pos[1] += v_y;
+        const MIN_Y: f32 = 1.0 - ((0.2 * 0.5) / 2.0);
+        const MAX_Y: f32 = -1.0 + ((0.2 * 0.5) / 2.0);
+        if ball_pos[1] > MIN_Y {
+            v_y = -v_y;
+            ball_pos[1] = MIN_Y;
+        } else if ball_pos[1] < MAX_Y {
+            v_y = -v_y;
+            ball_pos[1] = MAX_Y;
+        }
+
+        let ball_pcs = vs::ty::PushConstants {
+            rot: [[1.0, 0.0], [0.0, 1.0]],
+            translation: ball_pos,
+            scale: 0.2,
+        };
+        let paddle_pcs = vs::ty::PushConstants {
+            rot: [[1.0, 0.0], [0.0, 1.0]],
+            scale: 0.2,
+            translation: [paddle_x, 0.8],
+        };
 
         // before acquiring the next image in the swapchain, clean up any past futures
         if presentations_since_cleanup > 5 {
