@@ -34,6 +34,18 @@ fn main() {
     };
     let ball_img_data = ball_img.into_raw().clone();
 
+    let paddle_img = image::load_from_memory_with_format(
+        include_bytes!("../imgs/paddle_01.png"),
+        image::ImageFormat::Png,
+    )
+    .expect("failed to load paddle image")
+    .to_rgba();
+    let paddle_img_dims = vulkano::image::Dimensions::Dim2d {
+        width: paddle_img.dimensions().0,
+        height: paddle_img.dimensions().1,
+    };
+    let paddle_img_data = paddle_img.into_raw().clone();
+
     let sdl_context = sdl2::init().expect("failed to initialize SDL2");
     println!(
         "using SDL2 version {}, rev {}",
@@ -177,6 +189,50 @@ fn main() {
     )
     .unwrap();
 
+    let norm_paddle_height = paddle_img_dims.height() as f32 / paddle_img_dims.width() as f32;
+    let paddle_verts: Vec<Vertex> = vec![
+        Vertex {
+            position: [-1.0, -norm_paddle_height],
+            color: [0.0, 0.0, 0.0, 0.0],
+            uv: [0.0, 0.0],
+        },
+        Vertex {
+            position: [-1.0, norm_paddle_height],
+            color: [0.0, 0.0, 0.0, 0.0],
+            uv: [0.0, 1.0],
+        },
+        Vertex {
+            position: [1.0, norm_paddle_height],
+            color: [0.0, 0.0, 0.0, 0.0],
+            uv: [1.0, 1.0],
+        },
+        Vertex {
+            position: [-1.0, -norm_paddle_height],
+            color: [0.0, 0.0, 0.0, 0.0],
+            uv: [0.0, 0.0],
+        },
+        Vertex {
+            position: [1.0, norm_paddle_height],
+            color: [0.0, 0.0, 0.0, 0.0],
+            uv: [1.0, 1.0],
+        },
+        Vertex {
+            position: [1.0, -norm_paddle_height],
+            color: [0.0, 0.0, 0.0, 0.0],
+            uv: [1.0, 0.0],
+        },
+    ];
+    let paddle_vbuff = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage {
+            vertex_buffer: true,
+            ..BufferUsage::none()
+        },
+        false,
+        paddle_verts.into_iter(),
+    )
+    .unwrap();
+
     mod vs {
         vulkano_shaders::shader! {
                     ty: "vertex",
@@ -273,6 +329,15 @@ void main() {
     )
     .expect("failed to create immutable image future");
 
+    let (paddle_tex, paddle_tex_fut) = vulkano::image::ImmutableImage::from_iter(
+        paddle_img_data.into_iter(),
+        paddle_img_dims,
+        vulkano::format::Format::R8G8B8A8Srgb,
+        queue.clone(),
+    )
+    .expect("failed to create immutable image future for paddle");
+    let tex_fut = ball_tex_fut.join(paddle_tex_fut);
+
     let sampler = Sampler::new(
         device.clone(),
         Filter::Linear,
@@ -305,6 +370,13 @@ void main() {
     let ball_ds = Arc::new(
         PersistentDescriptorSet::start(layout.clone())
             .add_sampled_image(ball_tex.clone(), sampler.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+    );
+    let paddle_ds = Arc::new(
+        PersistentDescriptorSet::start(layout.clone())
+            .add_sampled_image(paddle_tex.clone(), sampler.clone())
             .unwrap()
             .build()
             .unwrap(),
@@ -347,7 +419,7 @@ void main() {
         })
         .collect::<Vec<_>>();
 
-    let mut prev_presentations = ball_tex_fut.boxed();
+    let mut prev_presentations = tex_fut.boxed();
     let mut presentations_since_cleanup = 0;
     let mut debug_on = false;
     let mut pos = [0f32; 2];
@@ -378,6 +450,11 @@ void main() {
         let ball_pcs = vs::ty::PushConstants {
             rot: [[1.0, 0.0], [0.0, 1.0]],
             translation: pos,
+            scale: 0.2,
+        };
+        let paddle_pcs = vs::ty::PushConstants {
+            rot: [[1.0, 0.0], [0.0, 1.0]],
+            translation: [0.0, 0.8],
             scale: 0.2,
         };
 
@@ -429,6 +506,14 @@ void main() {
                 ball_ds.clone(),
                 ball_pcs,
             )
+            .unwrap()
+            .draw(
+                pipeline.clone(),
+                &dynamic_state,
+                paddle_vbuff.clone(),
+                paddle_ds.clone(),
+                paddle_pcs,
+            )
             .unwrap();
 
         if debug_on {
@@ -439,6 +524,14 @@ void main() {
                     ball_vbuff.clone(),
                     (),
                     ball_pcs,
+                )
+                .unwrap()
+                .draw(
+                    dbg_pipeline.clone(),
+                    &dynamic_state,
+                    paddle_vbuff.clone(),
+                    (),
+                    paddle_pcs,
                 )
                 .unwrap();
         }
