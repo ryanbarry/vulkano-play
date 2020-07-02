@@ -269,10 +269,10 @@ void main() {
     );
 
     let (ball_fut, mut spr_ball) = Sprite::new(queue.clone(), ball_img);
-    spr_ball.scale = 0.1;
+    spr_ball.scale = spr_ball.width as f32 / 600. * 2. * 0.2;
     let (padl_fut, mut spr_padl) = Sprite::new(queue.clone(), padl_img);
     spr_padl.pos_y = 0.8;
-    spr_padl.scale = 0.25;
+    spr_padl.scale = spr_padl.width as f32 / 600. * 2. * 0.2;
 
     let padl_desc_set = Arc::new(
         PersistentDescriptorSet::start(layout.clone())
