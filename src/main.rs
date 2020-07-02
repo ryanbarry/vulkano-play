@@ -29,17 +29,12 @@ fn main() {
     .expect("failed to load image")
     .to_rgba();
 
-    let paddle_img = image::load_from_memory_with_format(
+    let padl_img = image::load_from_memory_with_format(
         include_bytes!("../imgs/paddle_01.png"),
         image::ImageFormat::Png,
     )
     .expect("failed to load paddle image")
     .to_rgba();
-    let paddle_img_dims = vulkano::image::Dimensions::Dim2d {
-        width: paddle_img.dimensions().0,
-        height: paddle_img.dimensions().1,
-    };
-    let paddle_img_data = paddle_img.into_raw().clone();
 
     let sdl_context = sdl2::init().expect("failed to initialize SDL2");
     println!(
@@ -145,50 +140,6 @@ fn main() {
     )
     .expect("failed to create swapchain");
 
-    let norm_paddle_height = paddle_img_dims.height() as f32 / paddle_img_dims.width() as f32;
-    let paddle_verts: Vec<Vertex> = vec![
-        Vertex {
-            position: [-1.0, -norm_paddle_height],
-            color: [0.0, 0.0, 0.0, 0.0],
-            uv: [0.0, 0.0],
-        },
-        Vertex {
-            position: [-1.0, norm_paddle_height],
-            color: [0.0, 0.0, 0.0, 0.0],
-            uv: [0.0, 1.0],
-        },
-        Vertex {
-            position: [1.0, norm_paddle_height],
-            color: [0.0, 0.0, 0.0, 0.0],
-            uv: [1.0, 1.0],
-        },
-        Vertex {
-            position: [-1.0, -norm_paddle_height],
-            color: [0.0, 0.0, 0.0, 0.0],
-            uv: [0.0, 0.0],
-        },
-        Vertex {
-            position: [1.0, norm_paddle_height],
-            color: [0.0, 0.0, 0.0, 0.0],
-            uv: [1.0, 1.0],
-        },
-        Vertex {
-            position: [1.0, -norm_paddle_height],
-            color: [0.0, 0.0, 0.0, 0.0],
-            uv: [1.0, 0.0],
-        },
-    ];
-    let paddle_vbuff = CpuAccessibleBuffer::from_iter(
-        device.clone(),
-        BufferUsage {
-            vertex_buffer: true,
-            ..BufferUsage::none()
-        },
-        false,
-        paddle_verts.into_iter(),
-    )
-    .unwrap();
-
     mod vs {
         vulkano_shaders::shader! {
                     ty: "vertex",
@@ -277,14 +228,6 @@ void main() {
                                                                 }
     ).unwrap());
 
-    let (paddle_tex, paddle_tex_fut) = vulkano::image::ImmutableImage::from_iter(
-        paddle_img_data.into_iter(),
-        paddle_img_dims,
-        vulkano::format::Format::R8G8B8A8Srgb,
-        queue.clone(),
-    )
-    .expect("failed to create immutable image future for paddle");
-
     let sampler = Sampler::new(
         device.clone(),
         Filter::Linear,
@@ -312,29 +255,7 @@ void main() {
             .build(device.clone())
             .unwrap(),
     );
-
     let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
-    let paddle_ds = Arc::new(
-        PersistentDescriptorSet::start(layout.clone())
-            .add_sampled_image(paddle_tex.clone(), sampler.clone())
-            .unwrap()
-            .build()
-            .unwrap(),
-    );
-
-    let (fut, mut spr_ball) = Sprite::new(queue.clone(), layout.clone(), sampler.clone(), ball_img);
-    spr_ball.scale = 0.1;
-
-    let ball_desc_set = Arc::new(
-        PersistentDescriptorSet::start(layout.clone())
-            .add_sampled_image(spr_ball.texture.clone(), sampler.clone())
-            .unwrap()
-            .build()
-            .expect("failed to create descriptor set with sampled image"),
-    );
-
-    let spr_fut = fut.join(paddle_tex_fut);
-
     let dbg_pipeline = Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
@@ -346,6 +267,30 @@ void main() {
             .build(device.clone())
             .unwrap(),
     );
+
+    let (ball_fut, mut spr_ball) = Sprite::new(queue.clone(), layout.clone(), ball_img);
+    spr_ball.scale = 0.1;
+    let (padl_fut, mut spr_padl) = Sprite::new(queue.clone(), layout.clone(), padl_img);
+    spr_padl.pos_y = 0.8;
+    spr_padl.scale = 0.25;
+
+    let padl_desc_set = Arc::new(
+        PersistentDescriptorSet::start(layout.clone())
+            .add_sampled_image(spr_padl.texture.clone(), sampler.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+    );
+
+    let ball_desc_set = Arc::new(
+        PersistentDescriptorSet::start(layout.clone())
+            .add_sampled_image(spr_ball.texture.clone(), sampler.clone())
+            .unwrap()
+            .build()
+            .expect("failed to create descriptor set with sampled image"),
+    );
+
+    let spr_fut = ball_fut.join(padl_fut);
 
     let dynamic_state = DynamicState {
         viewports: Some(vec![Viewport {
@@ -395,7 +340,7 @@ void main() {
                 sdl2::event::Event::MouseMotion {
                     xrel: mousex_rel, ..
                 } => {
-                    paddle_x += (mousex_rel as f32) / 800.0;
+                    spr_padl.pos_x += (mousex_rel as f32) / 800.0;
                 }
                 _ => {}
             }
@@ -428,9 +373,9 @@ void main() {
             scale: spr_ball.scale,
         };
         let paddle_pcs = vs::ty::PushConstants {
-            rot: [[1.0, 0.0], [0.0, 1.0]],
-            scale: 0.2,
-            translation: [paddle_x, 0.8],
+            rot: spr_padl.rotat,
+            scale: spr_padl.scale,
+            translation: [spr_padl.pos_x, spr_padl.pos_y],
         };
 
         // before acquiring the next image in the swapchain, clean up any past futures
@@ -468,8 +413,8 @@ void main() {
             .draw(
                 pipeline.clone(),
                 &dynamic_state,
-                paddle_vbuff.clone(),
-                paddle_ds.clone(),
+                spr_padl.vbuff.clone(),
+                padl_desc_set.clone(),
                 paddle_pcs,
             )
             .unwrap();
@@ -487,7 +432,7 @@ void main() {
                 .draw(
                     dbg_pipeline.clone(),
                     &dynamic_state,
-                    paddle_vbuff.clone(),
+                    spr_padl.vbuff.clone(),
                     (),
                     paddle_pcs,
                 )
@@ -539,7 +484,6 @@ impl Sprite {
     fn new(
         queue: Arc<vulkano::device::Queue>,
         layout: Arc<vulkano::descriptor::descriptor_set::UnsafeDescriptorSetLayout>,
-        sampler: Arc<Sampler>,
         image_data: image::RgbaImage,
     ) -> (Box<dyn vulkano::sync::GpuFuture>, Sprite) {
         let (img_w, img_h) = image_data.dimensions();
