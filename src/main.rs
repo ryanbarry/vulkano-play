@@ -22,19 +22,13 @@ struct Vertex {
 vulkano::impl_vertex!(Vertex, position, color, uv);
 
 fn main() {
-    let ball_img = image::load_from_memory_with_format(
-        include_bytes!("../imgs/ballGrey_09.png"),
-        image::ImageFormat::Png,
-    )
-    .expect("failed to load image")
-    .to_rgba();
+    let ball_img = image::open("imgs/ballGrey_09.png")
+        .expect("failed to open image")
+        .to_rgba();
 
-    let padl_img = image::load_from_memory_with_format(
-        include_bytes!("../imgs/paddle_01.png"),
-        image::ImageFormat::Png,
-    )
-    .expect("failed to load paddle image")
-    .to_rgba();
+    let padl_img = image::open("imgs/paddle_01.png")
+        .expect("failed to open image")
+        .to_rgba();
 
     let sdl_context = sdl2::init().expect("failed to initialize SDL2");
     println!(
