@@ -28,11 +28,6 @@ fn main() {
     )
     .expect("failed to load image")
     .to_rgba();
-    let ball_img_dims = vulkano::image::Dimensions::Dim2d {
-        width: ball_img.dimensions().0,
-        height: ball_img.dimensions().1,
-    };
-    let ball_img_data = ball_img.into_raw().clone();
 
     let paddle_img = image::load_from_memory_with_format(
         include_bytes!("../imgs/paddle_01.png"),
@@ -149,49 +144,6 @@ fn main() {
         ColorSpace::SrgbNonLinear,
     )
     .expect("failed to create swapchain");
-
-    let ball_verts: Vec<Vertex> = vec![
-        Vertex {
-            position: [-0.25, -0.25],
-            color: [1.0, 0.3, 0.0, 1.0],
-            uv: [0.0, 0.0],
-        },
-        Vertex {
-            position: [-0.25, 0.25],
-            color: [1.0, 0.3, 0.0, 1.0],
-            uv: [0.0, 1.0],
-        },
-        Vertex {
-            position: [0.25, 0.25],
-            color: [1.0, 0.0, 0.4, 1.0],
-            uv: [1.0, 1.0],
-        },
-        Vertex {
-            position: [-0.25, -0.25],
-            color: [1.0, 0.3, 0.0, 1.0],
-            uv: [0.0, 0.0],
-        },
-        Vertex {
-            position: [0.25, 0.25],
-            color: [1.0, 0.0, 0.4, 1.0],
-            uv: [1.0, 1.0],
-        },
-        Vertex {
-            position: [0.25, -0.25],
-            color: [1.0, 0.0, 0.4, 1.0],
-            uv: [1.0, 0.0],
-        },
-    ];
-    let ball_vbuff = CpuAccessibleBuffer::from_iter(
-        device.clone(),
-        BufferUsage {
-            vertex_buffer: true,
-            ..BufferUsage::none()
-        },
-        false,
-        ball_verts.into_iter(),
-    )
-    .unwrap();
 
     let norm_paddle_height = paddle_img_dims.height() as f32 / paddle_img_dims.width() as f32;
     let paddle_verts: Vec<Vertex> = vec![
@@ -325,14 +277,6 @@ void main() {
                                                                 }
     ).unwrap());
 
-    let (ball_tex, ball_tex_fut) = vulkano::image::ImmutableImage::from_iter(
-        ball_img_data.into_iter(),
-        ball_img_dims,
-        vulkano::format::Format::R8G8B8A8Srgb,
-        queue.clone(),
-    )
-    .expect("failed to create immutable image future");
-
     let (paddle_tex, paddle_tex_fut) = vulkano::image::ImmutableImage::from_iter(
         paddle_img_data.into_iter(),
         paddle_img_dims,
@@ -340,7 +284,6 @@ void main() {
         queue.clone(),
     )
     .expect("failed to create immutable image future for paddle");
-    let tex_fut = ball_tex_fut.join(paddle_tex_fut);
 
     let sampler = Sampler::new(
         device.clone(),
@@ -371,13 +314,6 @@ void main() {
     );
 
     let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
-    let ball_ds = Arc::new(
-        PersistentDescriptorSet::start(layout.clone())
-            .add_sampled_image(ball_tex.clone(), sampler.clone())
-            .unwrap()
-            .build()
-            .unwrap(),
-    );
     let paddle_ds = Arc::new(
         PersistentDescriptorSet::start(layout.clone())
             .add_sampled_image(paddle_tex.clone(), sampler.clone())
@@ -385,6 +321,19 @@ void main() {
             .build()
             .unwrap(),
     );
+
+    let (fut, mut spr_ball) = Sprite::new(queue.clone(), layout.clone(), sampler.clone(), ball_img);
+    spr_ball.scale = 0.1;
+
+    let ball_desc_set = Arc::new(
+        PersistentDescriptorSet::start(layout.clone())
+            .add_sampled_image(spr_ball.texture.clone(), sampler.clone())
+            .unwrap()
+            .build()
+            .expect("failed to create descriptor set with sampled image"),
+    );
+
+    let spr_fut = fut.join(paddle_tex_fut);
 
     let dbg_pipeline = Arc::new(
         GraphicsPipeline::start()
@@ -423,11 +372,10 @@ void main() {
         })
         .collect::<Vec<_>>();
 
-    let mut prev_presentations = tex_fut.boxed();
+    let mut prev_presentations = spr_fut.boxed();
     let mut presentations_since_cleanup = 0;
     let mut debug_on = false;
     let mut paddle_x = 0f32;
-    let mut ball_pos = [0f32; 2];
     let mut v_x = 0.005f32;
     let mut v_y = 0.0071f32;
     'running: loop {
@@ -453,31 +401,31 @@ void main() {
             }
         }
 
-        ball_pos[0] += v_x;
+        spr_ball.pos_x += v_x;
         const MAX_X: f32 = 800.0 / 600.0 - ((0.2 * 0.5) / 2.0);
         const MIN_X: f32 = -800.0 / 600.0 + ((0.2 * 0.5) / 2.0);
-        if ball_pos[0] > MAX_X {
+        if spr_ball.pos_x > MAX_X {
             v_x = -v_x;
-            ball_pos[0] = MAX_X;
-        } else if ball_pos[0] < MIN_X {
+            spr_ball.pos_x = MAX_X;
+        } else if spr_ball.pos_x < MIN_X {
             v_x = -v_x;
-            ball_pos[0] = MIN_X;
+            spr_ball.pos_x = MIN_X;
         }
-        ball_pos[1] += v_y;
+        spr_ball.pos_y += v_y;
         const MIN_Y: f32 = 1.0 - ((0.2 * 0.5) / 2.0);
         const MAX_Y: f32 = -1.0 + ((0.2 * 0.5) / 2.0);
-        if ball_pos[1] > MIN_Y {
+        if spr_ball.pos_y > MIN_Y {
             v_y = -v_y;
-            ball_pos[1] = MIN_Y;
-        } else if ball_pos[1] < MAX_Y {
+            spr_ball.pos_y = MIN_Y;
+        } else if spr_ball.pos_y < MAX_Y {
             v_y = -v_y;
-            ball_pos[1] = MAX_Y;
+            spr_ball.pos_y = MAX_Y;
         }
 
         let ball_pcs = vs::ty::PushConstants {
-            rot: [[1.0, 0.0], [0.0, 1.0]],
-            translation: ball_pos,
-            scale: 0.2,
+            rot: spr_ball.rotat,
+            translation: [spr_ball.pos_x, spr_ball.pos_y],
+            scale: spr_ball.scale,
         };
         let paddle_pcs = vs::ty::PushConstants {
             rot: [[1.0, 0.0], [0.0, 1.0]],
@@ -512,8 +460,8 @@ void main() {
             .draw(
                 pipeline.clone(),
                 &dynamic_state,
-                ball_vbuff.clone(),
-                ball_ds.clone(),
+                spr_ball.vbuff.clone(),
+                ball_desc_set.clone(),
                 ball_pcs,
             )
             .unwrap()
@@ -531,7 +479,7 @@ void main() {
                 .draw(
                     dbg_pipeline.clone(),
                     &dynamic_state,
-                    ball_vbuff.clone(),
+                    spr_ball.vbuff.clone(),
                     (),
                     ball_pcs,
                 )
@@ -573,5 +521,107 @@ void main() {
                 presentations_since_cleanup = 0; // drop()ed the prev. value of prev_presentations
             }
         }
+    }
+}
+
+struct Sprite {
+    pos_x: f32,
+    pos_y: f32,
+    scale: f32,
+    rotat: [[f32; 2]; 2],
+    height: u32,
+    width: u32,
+    vbuff: Arc<vulkano::buffer::immutable::ImmutableBuffer<[Vertex]>>,
+    texture: Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>,
+}
+
+impl Sprite {
+    fn new(
+        queue: Arc<vulkano::device::Queue>,
+        layout: Arc<vulkano::descriptor::descriptor_set::UnsafeDescriptorSetLayout>,
+        sampler: Arc<Sampler>,
+        image_data: image::RgbaImage,
+    ) -> (Box<dyn vulkano::sync::GpuFuture>, Sprite) {
+        let (img_w, img_h) = image_data.dimensions();
+        let vko_dims = vulkano::image::Dimensions::Dim2d {
+            width: img_w,
+            height: img_h,
+        };
+        let (tex, tex_fut) = vulkano::image::ImmutableImage::from_iter(
+            image_data.into_raw().into_iter(),
+            vko_dims,
+            vulkano::format::R8G8B8A8Srgb,
+            queue.clone(),
+        )
+        .expect("failed to create vulkan image");
+
+        let (vert_halfwidth, vert_halfheight) = {
+            if img_w == img_h {
+                (0.5, 0.5)
+            } else if img_w > img_h {
+                let vhh = (img_h as f32 / img_w as f32) / 2.0;
+                (0.5, vhh)
+            } else {
+                let vhw = (img_w as f32 / img_h as f32) / 2.0;
+                (vhw, 0.5)
+            }
+        };
+
+        let verts = vec![
+            Vertex {
+                position: [-vert_halfwidth, -vert_halfheight],
+                color: [0.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            Vertex {
+                position: [-vert_halfwidth, vert_halfheight],
+                color: [0.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 1.0],
+            },
+            Vertex {
+                position: [vert_halfwidth, vert_halfheight],
+                color: [0.0, 0.0, 0.0, 1.0],
+                uv: [1.0, 1.0],
+            },
+            Vertex {
+                position: [vert_halfwidth, vert_halfheight],
+                color: [0.0, 0.0, 0.0, 1.0],
+                uv: [1.0, 1.0],
+            },
+            Vertex {
+                position: [-vert_halfwidth, -vert_halfheight],
+                color: [0.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            Vertex {
+                position: [vert_halfwidth, -vert_halfheight],
+                color: [0.0, 0.0, 0.0, 1.0],
+                uv: [1.0, 0.0],
+            },
+        ];
+
+        let (vert_buf, vbuf_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
+            verts.into_iter(),
+            BufferUsage {
+                vertex_buffer: true,
+                ..BufferUsage::none()
+            },
+            queue,
+        )
+        .expect("failed to create vertex buffer");
+
+        (
+            Box::new(tex_fut.join(vbuf_fut)),
+            Sprite {
+                pos_x: 0.0,
+                pos_y: 0.0,
+                scale: 1.0,
+                height: img_h,
+                width: img_w,
+                rotat: [[1.0, 0.0], [0.0, 1.0]],
+                vbuff: vert_buf,
+                texture: tex,
+            },
+        )
     }
 }
