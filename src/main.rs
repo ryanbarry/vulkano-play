@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
+use vulkano::buffer::BufferUsage;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions};
@@ -268,9 +268,9 @@ void main() {
             .unwrap(),
     );
 
-    let (ball_fut, mut spr_ball) = Sprite::new(queue.clone(), layout.clone(), ball_img);
+    let (ball_fut, mut spr_ball) = Sprite::new(queue.clone(), ball_img);
     spr_ball.scale = 0.1;
-    let (padl_fut, mut spr_padl) = Sprite::new(queue.clone(), layout.clone(), padl_img);
+    let (padl_fut, mut spr_padl) = Sprite::new(queue.clone(), padl_img);
     spr_padl.pos_y = 0.8;
     spr_padl.scale = 0.25;
 
@@ -320,7 +320,6 @@ void main() {
     let mut prev_presentations = spr_fut.boxed();
     let mut presentations_since_cleanup = 0;
     let mut debug_on = false;
-    let mut paddle_x = 0f32;
     let mut v_x = 0.005f32;
     let mut v_y = 0.0071f32;
     'running: loop {
@@ -483,7 +482,6 @@ struct Sprite {
 impl Sprite {
     fn new(
         queue: Arc<vulkano::device::Queue>,
-        layout: Arc<vulkano::descriptor::descriptor_set::UnsafeDescriptorSetLayout>,
         image_data: image::RgbaImage,
     ) -> (Box<dyn vulkano::sync::GpuFuture>, Sprite) {
         let (img_w, img_h) = image_data.dimensions();
