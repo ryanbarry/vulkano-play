@@ -50,6 +50,7 @@ fn main() {
         .expect("failed to get SDL video subsystem");
     let window = video_subsystem
         .window("Vulkano Play", 800, 600)
+        .allow_highdpi()
         .vulkan()
         .build()
         .expect("failed to create window");
@@ -398,7 +399,7 @@ void main() {
             .begin_render_pass(
                 framebuffers[acqd_swch_img].clone(),
                 false,
-                vec![[0.0, 0.0, 1.0, 1.0].into()],
+                vec![[0.3, 0.6, 0.3, 1.0].into()],
             )
             .unwrap()
             .draw(
