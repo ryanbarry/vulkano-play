@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::sync::Arc;
 
 use vulkano::buffer::BufferUsage;
@@ -136,16 +135,6 @@ fn main() {
     )
     .expect("failed to create swapchain");
 
-    let (ball_fut, spr_ball_raw) = Sprite::new(queue.clone(), ball_img);
-    let spr_ball = Rc::new(spr_ball_raw);
-    spr_ball.scale = spr_ball.width as f32 / 600. * 2. * 0.2;
-    let (padl_fut, spr_padl_raw) = Sprite::new(queue.clone(), padl_img);
-    let spr_padl = Rc::new(spr_padl_raw);
-    spr_padl.pos_y = 0.8;
-    spr_padl.scale = spr_padl.width as f32 / 600. * 2. * 0.2;
-
-    let spr_fut = ball_fut.join(padl_fut);
-
     let dynamic_state = DynamicState {
         viewports: Some(vec![Viewport {
             origin: [0.0, 0.0],
@@ -186,12 +175,18 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    let mut sprenderer = SpriteRenderer::new(device.clone(), render_pass.clone());
+    let mut sprenderer = SpriteRenderer::new(device.clone(), queue.clone(), render_pass.clone());
+    let spr_ball_idx = sprenderer.new_sprite(ball_img);
+    let spr_padl_idx = sprenderer.new_sprite(padl_img);
 
-    sprenderer.addSprite(spr_ball.clone());
-    sprenderer.addSprite(spr_padl.clone());
+    let ball_width = sprenderer.sprites.get(spr_ball_idx).unwrap().width as f32 / 600. * 2. * 0.2;
+    sprenderer.sprites.get_mut(spr_ball_idx).unwrap().scale = ball_width;
 
-    let mut prev_presentations = spr_fut.boxed();
+    let padl_width = sprenderer.sprites.get(spr_padl_idx).unwrap().width as f32 / 600. * 2. * 0.2;
+    sprenderer.sprites.get_mut(spr_padl_idx).unwrap().scale = padl_width;
+    sprenderer.sprites.get_mut(spr_padl_idx).unwrap().pos_y = 0.8;
+
+    let mut prev_presentations = vulkano::sync::now(device.clone()).boxed();
     let mut presentations_since_cleanup = 0;
     let mut debug_on = false;
     let mut v_x = 0.005f32;
@@ -213,32 +208,37 @@ fn main() {
                 sdl2::event::Event::MouseMotion {
                     xrel: mousex_rel, ..
                 } => {
-                    spr_padl.pos_x += (mousex_rel as f32) / 800.0;
+                    sprenderer.sprites.get_mut(spr_padl_idx).unwrap().pos_x +=
+                        (mousex_rel as f32) / 800.0;
                 }
                 _ => {}
             }
         }
 
-        spr_ball.pos_x += v_x;
+        let mut ball_x = sprenderer.sprites.get(spr_ball_idx).unwrap().pos_x;
+        let mut ball_y = sprenderer.sprites.get(spr_ball_idx).unwrap().pos_y;
+        ball_x += v_x;
         const MAX_X: f32 = 800.0 / 600.0 - ((0.2 * 0.5) / 2.0);
         const MIN_X: f32 = -800.0 / 600.0 + ((0.2 * 0.5) / 2.0);
-        if spr_ball.pos_x > MAX_X {
+        if ball_x > MAX_X {
             v_x = -v_x;
-            spr_ball.pos_x = MAX_X;
-        } else if spr_ball.pos_x < MIN_X {
+            ball_x = MAX_X;
+        } else if ball_x < MIN_X {
             v_x = -v_x;
-            spr_ball.pos_x = MIN_X;
+            ball_x = MIN_X;
         }
-        spr_ball.pos_y += v_y;
+        ball_y += v_y;
         const MIN_Y: f32 = 1.0 - ((0.2 * 0.5) / 2.0);
         const MAX_Y: f32 = -1.0 + ((0.2 * 0.5) / 2.0);
-        if spr_ball.pos_y > MIN_Y {
+        if ball_y > MIN_Y {
             v_y = -v_y;
-            spr_ball.pos_y = MIN_Y;
-        } else if spr_ball.pos_y < MAX_Y {
+            ball_y = MIN_Y;
+        } else if ball_y < MAX_Y {
             v_y = -v_y;
-            spr_ball.pos_y = MAX_Y;
+            ball_y = MAX_Y;
         }
+        sprenderer.sprites.get_mut(spr_ball_idx).unwrap().pos_x = ball_x;
+        sprenderer.sprites.get_mut(spr_ball_idx).unwrap().pos_y = ball_y;
 
         // before acquiring the next image in the swapchain, clean up any past futures
         if presentations_since_cleanup > 5 {
@@ -264,13 +264,16 @@ fn main() {
         )
         .unwrap();
 
-        sprenderer.drawSprites(&dynamic_state, &mut cbb);
+        let fut = sprenderer.draw_sprites(&dynamic_state, &mut cbb);
 
         cbb.end_render_pass().expect("failed to end render pass");
         let command_buffer = cbb.build().expect("failed to create cmd buffer");
 
         let pres_fut = acquire_future
-            .join(prev_presentations)
+            .join(
+                prev_presentations
+                    .join(fut.unwrap_or(Box::new(vulkano::sync::now(device.clone())))),
+            )
             .then_execute(queue.clone(), command_buffer)
             .unwrap()
             .then_swapchain_present(queue.clone(), swapchain.clone(), acqd_swch_img)
@@ -396,13 +399,137 @@ impl Sprite {
 }
 
 struct SpriteRenderer {
-    render_pass: Arc<dyn vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
     pipeline: Arc<dyn vulkano::pipeline::GraphicsPipelineAbstract + Send + Sync>,
     dbg_pipeline: Arc<dyn vulkano::pipeline::GraphicsPipelineAbstract + Send + Sync>,
     sampler: Arc<vulkano::sampler::Sampler>,
-    sprites: Vec<Rc<Sprite>>,
+    sprites: Vec<Sprite>,
     dscsets: Vec<Arc<dyn vulkano::descriptor::DescriptorSet + Send + Sync>>,
+    queue: Arc<vulkano::device::Queue>,
+    future: Option<Box<dyn vulkano::sync::GpuFuture>>,
 }
+
+impl SpriteRenderer {
+    fn new(
+        device: Arc<vulkano::device::Device>,
+        q: Arc<vulkano::device::Queue>,
+        rpass: Arc<dyn vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
+    ) -> SpriteRenderer {
+        let vs = vs::Shader::load(device.clone()).expect("failed to create vertex shader");
+        let fs = fs::Shader::load(device.clone()).expect("failed to create fragment shader");
+        let dbg_fs =
+            dbg_fs::Shader::load(device.clone()).expect("failed to create dbg fragment shader");
+
+        let sampler = Sampler::new(
+            device.clone(),
+            Filter::Linear,
+            Filter::Linear,
+            MipmapMode::Nearest,
+            SamplerAddressMode::Repeat,
+            SamplerAddressMode::Repeat,
+            SamplerAddressMode::Repeat,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+        )
+        .expect("failed to create sampler");
+
+        let pipeline = Arc::new(
+            GraphicsPipeline::start()
+                .vertex_input_single_buffer::<Vertex>()
+                .vertex_shader(vs.main_entry_point(), ())
+                .triangle_list()
+                .viewports_dynamic_scissors_irrelevant(1)
+                .fragment_shader(fs.main_entry_point(), ())
+                .blend_alpha_blending()
+                .render_pass(Subpass::from(rpass.clone(), 0).unwrap())
+                .build(device.clone())
+                .unwrap(),
+        );
+        let dbg_pipeline = Arc::new(
+            GraphicsPipeline::start()
+                .vertex_input_single_buffer::<Vertex>()
+                .vertex_shader(vs.main_entry_point(), ())
+                .polygon_mode_line()
+                .viewports_dynamic_scissors_irrelevant(1)
+                .fragment_shader(dbg_fs.main_entry_point(), ())
+                .render_pass(Subpass::from(rpass.clone(), 0).unwrap())
+                .build(device.clone())
+                .unwrap(),
+        );
+
+        SpriteRenderer {
+            queue: q.clone(),
+            pipeline: pipeline.clone(),
+            dbg_pipeline: dbg_pipeline.clone(),
+            sampler: sampler.clone(),
+            future: None,
+            sprites: Vec::<Sprite>::new(),
+            dscsets: Vec::<Arc<dyn vulkano::descriptor::DescriptorSet + Send + Sync>>::new(),
+        }
+    }
+
+    fn new_sprite(&mut self, img: image::RgbaImage) -> usize {
+        let (fut, spr) = Sprite::new(self.queue.clone(), img);
+        let layout = self.pipeline.descriptor_set_layout(0).unwrap();
+        let desc_set = Arc::new(
+            PersistentDescriptorSet::start(layout.clone())
+                .add_sampled_image(spr.texture.clone(), self.sampler.clone())
+                .unwrap()
+                .build()
+                .expect("failed to create descriptor set with sampled image"),
+        );
+        if let Some(old_future) = self.future.take() {
+            self.future.replace(old_future.join(fut).boxed());
+        } else {
+            self.future.replace(fut);
+        }
+        self.dscsets.push(desc_set.clone());
+        self.sprites.push(spr);
+        assert_eq!(self.dscsets.len(), self.sprites.len());
+        self.sprites.len() - 1
+    }
+
+    fn draw_sprites(
+        &mut self,
+        ds: &vulkano::command_buffer::DynamicState,
+        cb: &mut vulkano::command_buffer::AutoCommandBufferBuilder,
+    ) -> Option<Box<dyn vulkano::sync::GpuFuture>> {
+        for (i, sprite) in (&self.sprites).into_iter().enumerate() {
+            let dscset = self.dscsets.get(i).unwrap();
+
+            let pconsts = vs::ty::PushConstants {
+                rot: (&sprite).rotat,
+                translation: [(&sprite).pos_x, (&sprite).pos_y],
+                scale: (&sprite).scale,
+            };
+
+            cb.draw(
+                self.pipeline.clone(),
+                ds,
+                vec![(&sprite).vbuff.clone()],
+                dscset.clone(),
+                pconsts,
+            )
+            .unwrap();
+
+            if false {
+                //debug_on {
+                cb.draw(
+                    self.dbg_pipeline.clone(),
+                    ds,
+                    vec![(&sprite).vbuff.clone()],
+                    (),
+                    pconsts,
+                )
+                .unwrap();
+            }
+        }
+
+        self.future.take()
+    }
+}
+
 mod vs {
     vulkano_shaders::shader! {
                 ty: "vertex",
@@ -468,115 +595,5 @@ void main() {
   f_color = vec4(1.0-v_color.r, 1.0-v_color.g, 1.0-v_color.b, 1.0);
 }
 "
-    }
-}
-
-impl SpriteRenderer {
-    fn new(
-        device: Arc<vulkano::device::Device>,
-        rpass: Arc<dyn vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
-    ) -> SpriteRenderer {
-        let vs = vs::Shader::load(device.clone()).expect("failed to create vertex shader");
-        let fs = fs::Shader::load(device.clone()).expect("failed to create fragment shader");
-        let dbg_fs =
-            dbg_fs::Shader::load(device.clone()).expect("failed to create dbg fragment shader");
-
-        let sampler = Sampler::new(
-            device.clone(),
-            Filter::Linear,
-            Filter::Linear,
-            MipmapMode::Nearest,
-            SamplerAddressMode::Repeat,
-            SamplerAddressMode::Repeat,
-            SamplerAddressMode::Repeat,
-            0.0,
-            1.0,
-            0.0,
-            0.0,
-        )
-        .expect("failed to create sampler");
-
-        let pipeline = Arc::new(
-            GraphicsPipeline::start()
-                .vertex_input_single_buffer::<Vertex>()
-                .vertex_shader(vs.main_entry_point(), ())
-                .triangle_list()
-                .viewports_dynamic_scissors_irrelevant(1)
-                .fragment_shader(fs.main_entry_point(), ())
-                .blend_alpha_blending()
-                .render_pass(Subpass::from(rpass.clone(), 0).unwrap())
-                .build(device.clone())
-                .unwrap(),
-        );
-        let dbg_pipeline = Arc::new(
-            GraphicsPipeline::start()
-                .vertex_input_single_buffer::<Vertex>()
-                .vertex_shader(vs.main_entry_point(), ())
-                .polygon_mode_line()
-                .viewports_dynamic_scissors_irrelevant(1)
-                .fragment_shader(dbg_fs.main_entry_point(), ())
-                .render_pass(Subpass::from(rpass.clone(), 0).unwrap())
-                .build(device.clone())
-                .unwrap(),
-        );
-
-        SpriteRenderer {
-            pipeline: pipeline.clone(),
-            dbg_pipeline: dbg_pipeline.clone(),
-            render_pass: rpass.clone(),
-            sampler: sampler.clone(),
-            sprites: Vec::<Rc<Sprite>>::new(),
-            dscsets: Vec::<Arc<dyn vulkano::descriptor::DescriptorSet + Send + Sync>>::new(),
-        }
-    }
-
-    fn addSprite(&mut self, spr: Rc<Sprite>) {
-        let layout = self.pipeline.descriptor_set_layout(0).unwrap();
-        let desc_set = Arc::new(
-            PersistentDescriptorSet::start(layout.clone())
-                .add_sampled_image(spr.texture.clone(), self.sampler.clone())
-                .unwrap()
-                .build()
-                .expect("failed to create descriptor set with sampled image"),
-        );
-        self.dscsets.push(desc_set.clone());
-        self.sprites.push(spr.clone());
-    }
-
-    fn drawSprites(
-        &self,
-        ds: &vulkano::command_buffer::DynamicState,
-        cb: &mut vulkano::command_buffer::AutoCommandBufferBuilder,
-    ) {
-        for (i, sprite) in (&self.sprites).into_iter().enumerate() {
-            let dscset = self.dscsets.get(i).unwrap();
-
-            let pconsts = vs::ty::PushConstants {
-                rot: (&sprite).rotat,
-                translation: [(&sprite).pos_x, (&sprite).pos_y],
-                scale: (&sprite).scale,
-            };
-
-            cb.draw(
-                self.pipeline.clone(),
-                ds,
-                vec![(&sprite).vbuff.clone()],
-                dscset.clone(),
-                pconsts,
-            )
-            .unwrap();
-
-            if false {
-                //debug_on {
-                cb.draw(
-                    self.dbg_pipeline.clone(),
-                    ds,
-                    vec![(&sprite).vbuff.clone()],
-                    (),
-                    pconsts,
-                )
-                .unwrap();
-            }
-        }
     }
 }
